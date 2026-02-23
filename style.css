@@ -1,0 +1,464 @@
+/* ── Google Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+/* ── Root & Reset ── */
+:root {
+  --bg:       #0A0A0F;
+  --surface:  #13131A;
+  --surface2: #1C1C27;
+  --border:   #2A2A3A;
+  --accent:   #FF6B6B;
+  --accent2:  #4ECDC4;
+  --accent3:  #FFE66D;
+  --text:     #F0F0F5;
+  --muted:    #7A7A9A;
+  --radius:   16px;
+}
+
+/* ── Global ── */
+html, body, [data-testid="stAppViewContainer"] {
+  background-color: var(--bg) !important;
+  color: var(--text) !important;
+  font-family: 'DM Sans', sans-serif !important;
+}
+
+[data-testid="stAppViewContainer"] > .main {
+  background-color: var(--bg) !important;
+}
+
+[data-testid="stHeader"] {
+  background-color: var(--bg) !important;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+  background-color: var(--surface) !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+/* ── Main container width ── */
+.block-container {
+  max-width: 900px !important;
+  padding: 1.5rem 1rem 4rem !important;
+}
+
+/* ── Header ── */
+.gw-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 0 20px;
+  margin-bottom: 8px;
+}
+
+.gw-logo {
+  font-size: 42px;
+  line-height: 1;
+  filter: drop-shadow(0 0 16px rgba(255,107,107,0.5));
+}
+
+.gw-title {
+  font-family: 'Syne', sans-serif !important;
+  font-size: clamp(2rem, 6vw, 3rem) !important;
+  font-weight: 800 !important;
+  color: var(--text) !important;
+  letter-spacing: -1px;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.1 !important;
+}
+
+.gw-sub {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 2px 0 0;
+  letter-spacing: 0.02em;
+}
+
+/* ── Section label ── */
+.gw-section-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin: 20px 0 10px;
+}
+
+/* ── Mode buttons ── */
+.stButton > button {
+  background: var(--surface2) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  padding: 0.75rem 1rem !important;
+  transition: all 0.2s ease !important;
+  width: 100%;
+}
+
+.stButton > button:hover {
+  border-color: var(--accent) !important;
+  background: rgba(255,107,107,0.08) !important;
+  transform: translateY(-1px);
+}
+
+.stButton > button[kind="primary"] {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #000 !important;
+  font-weight: 700 !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+  background: #ff8585 !important;
+  border-color: #ff8585 !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255,107,107,0.35) !important;
+}
+
+/* ── Card ── */
+.gw-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin: 16px 0;
+}
+
+.gw-card h4 {
+  font-family: 'Syne', sans-serif !important;
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 16px !important;
+}
+
+/* ── Inputs ── */
+.stTextInput input, .stTextArea textarea {
+  background: var(--surface2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 0.95rem !important;
+  padding: 12px 16px !important;
+}
+
+.stTextInput input:focus, .stTextArea textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(255,107,107,0.15) !important;
+}
+
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {
+  color: var(--muted) !important;
+}
+
+/* Labels */
+.stTextInput label, .stTextArea label {
+  color: var(--text) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 0.9rem !important;
+  font-weight: 500 !important;
+  margin-bottom: 6px !important;
+}
+
+/* ── Expander (API key) ── */
+.stExpander {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  margin-bottom: 16px !important;
+}
+
+/* ── Hint ── */
+.gw-hint {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 0;
+  font-size: 1rem;
+}
+
+/* ── Results label ── */
+.gw-results-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 24px 0 14px;
+}
+
+/* ── POI Cards ── */
+.gw-poi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 12px;
+  position: relative;
+  transition: border-color 0.2s;
+}
+
+.gw-poi-card:hover {
+  border-color: var(--accent2);
+}
+
+.gw-poi-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--border);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.gw-poi-cat {
+  font-size: 0.78rem;
+  color: var(--accent2);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.gw-poi-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+  line-height: 1.3;
+}
+
+.gw-poi-why {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ── Destination Cards ── */
+.gw-dest-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: 14px;
+  transition: border-color 0.2s;
+}
+
+.gw-dest-card:hover {
+  border-color: var(--accent3);
+}
+
+.gw-dest-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gw-dest-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.gw-dest-dist {
+  font-size: 0.8rem;
+  color: var(--accent2);
+  font-weight: 500;
+  white-space: nowrap;
+  background: rgba(78,205,196,0.1);
+  padding: 2px 10px;
+  border-radius: 20px;
+}
+
+.gw-dest-vibe {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.gw-dest-tip {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+/* ── History items ── */
+.gw-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.gw-hist-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.gw-hist-query {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.gw-hist-ts {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+/* ── Divider ── */
+hr {
+  border-color: var(--border) !important;
+  margin: 28px 0 !important;
+}
+
+/* ── Spinner ── */
+.stSpinner {
+  color: var(--accent) !important;
+}
+
+/* ── Alert / error ── */
+.stAlert {
+  background: rgba(255,107,107,0.08) !important;
+  border: 1px solid rgba(255,107,107,0.3) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+}
+
+/* ── Folium map container ── */
+iframe {
+  border-radius: var(--radius) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* ── Mobile tweaks ── */
+@media (max-width: 640px) {
+  .block-container {
+    padding: 1rem 0.75rem 3rem !important;
+  }
+
+  .gw-header {
+    padding: 20px 0 14px;
+  }
+
+  .gw-logo {
+    font-size: 32px;
+  }
+
+  .gw-card {
+    padding: 16px;
+  }
+
+  .gw-dest-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  [data-testid="column"] {
+    min-width: 100% !important;
+  }
+}
+
+/* ── Slider ── */
+.stSlider {
+  padding: 0 2px !important;
+}
+
+.stSlider [data-baseweb="slider"] {
+  margin-top: 8px !important;
+}
+
+/* Track */
+.stSlider [data-testid="stSlider"] > div > div > div {
+  background: var(--border) !important;
+}
+
+/* Filled track */
+.stSlider [data-baseweb="slider"] [role="progressbar"] {
+  background: var(--accent2) !important;
+}
+
+/* Thumb */
+.stSlider [data-baseweb="slider"] [role="slider"] {
+  background: var(--accent2) !important;
+  border-color: var(--accent2) !important;
+  box-shadow: 0 0 0 4px rgba(78,205,196,0.2) !important;
+  width: 20px !important;
+  height: 20px !important;
+}
+
+/* Tick marks */
+.stSlider [data-baseweb="slider"] [data-testid="stTickBar"] {
+  display: none !important;
+}
+
+/* Value label */
+.stSlider [data-baseweb="slider"] [data-testid="stThumbValue"] {
+  background: var(--surface2) !important;
+  color: var(--accent2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-weight: 700 !important;
+  font-size: 0.8rem !important;
+  padding: 2px 8px !important;
+}
+
+/* ── Focus button column ── */
+[data-testid="column"]:last-child .stButton > button {
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 50% !important;
+  font-size: 1rem !important;
+  padding: 4px !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-height: unset !important;
+  margin-top: 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+[data-testid="column"]:last-child .stButton > button:hover {
+  background: rgba(255,107,107,0.12) !important;
+  border-color: var(--accent) !important;
+  transform: scale(1.15);
+}
+
+/* Scroll to anchor smooth */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
