@@ -59,7 +59,7 @@ You can provide it two ways:
 
 ---
 ## Changing the Gemini model
-You can also change the Gemini AI model around lines 65, more for it says in the
+You can also change the Gemini AI model around lines 65, more for it says in the file app.py
 
 
 ## Extending GoWhere
