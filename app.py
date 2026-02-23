@@ -47,7 +47,9 @@ def save_to_db(mode, query, result):
 def load_history():
     try:
         con = sqlite3.connect(DB_PATH)
-        rows = con.execute("SELECT ts, mode, query FROM history ORDER BY id DESC LIMIT 20").fetchall()
+        rows = con.execute(
+            "SELECT ts, mode, query FROM history ORDER BY id DESC LIMIT 20"
+        ).fetchall()
         con.close(); return rows
     except Exception: return []
 
@@ -64,100 +66,109 @@ def get_gemini(api_key):
     return genai.GenerativeModel("gemini-2.5-flash-lite")
 
 # ── Geocoding ─────────────────────────────────────────────────────────────────
-# Per-thread Nominatim instances (not thread-safe to share one)
+# Dedicated geolocator for the main thread (city lookups)
+_main_geo = Nominatim(user_agent="gowhere_main", timeout=10)
+
+# Per-thread geolocators for parallel POI workers
 _geo_local = threading.local()
 
-def _get_geo():
+def _get_worker_geo():
     if not hasattr(_geo_local, "geo"):
         _geo_local.geo = Nominatim(
-            user_agent=f"gowhere_v5_{id(threading.current_thread())}", timeout=8)
+            user_agent=f"gowhere_worker_{id(threading.current_thread())}", timeout=8)
     return _geo_local.geo
 
 def geocode_city(place: str):
-    """Geocode a city. Returns (lat, lng, address, country_code, country_name)."""
-    geo = _get_geo()
-    try:
-        # First try with addressdetails for country info
-        r = geo.geocode(place, exactly_one=True, addressdetails=True)
-        if r:
-            try:
-                addr    = r.raw.get("address", {})
-                cc      = addr.get("country_code", "").lower()
-                country = addr.get("country", "")
-            except Exception:
-                cc, country = "", ""
-            return r.latitude, r.longitude, r.address, cc, country
-    except Exception: pass
-
-    try:
-        # Fallback: without addressdetails
-        r = geo.geocode(place, exactly_one=True)
-        if r:
-            return r.latitude, r.longitude, r.address, "", ""
-    except Exception: pass
-
-    return None, None, None, "", ""
+    """Geocode a city on the main thread. Returns (lat, lng, address) or (None, None, None)."""
+    # Reuse main geolocator with proper spacing between retries
+    delays = [0, 2, 4, 8]  # Exponential backoff: 0s, 2s, 4s, 8s
+    timeouts = [10, 15, 20, 25]
+    
+    for i, delay in enumerate(delays):
+        if i > 0:
+            time.sleep(delay)  # Wait before retry
+        
+        try:
+            r = _main_geo.geocode(place, exactly_one=True, timeout=timeouts[i])
+            if r:
+                return r.latitude, r.longitude, r.address
+        except Exception:
+            pass
+    
+    return None, None, None
 
 def geocode_poi(name: str, city: str, city_lat: float, city_lng: float,
-                max_dist_km: float, country_code: str = ""):
+                max_dist_km: float = 80):
     """
-    Geocode one POI name near a city center.
-    Uses Nominatim's countrycodes param to restrict results to the right country.
-    Validates result is within max_dist_km of city center.
-    Falls back to progressively looser queries.
+    Multi-strategy geocoding for one POI name with escalating fallbacks.
+    Tries to find location using multiple approaches to maximize success rate.
     """
-    geo = _get_geo()
-    cc  = country_code.lower() if country_code else None
+    geo = _get_worker_geo()
+    deg = max(max_dist_km / 111.0, 0.05)  # Smaller viewbox for accuracy
+    vb  = f"{city_lng-deg},{city_lat-deg},{city_lng+deg},{city_lat+deg}"
 
-    # Build a bounding box hint (soft — not bounded, just a preference hint)
-    deg = max(max_dist_km / 111.0, 0.3)
-    vb  = f"{city_lng - deg},{city_lat - deg},{city_lng + deg},{city_lat + deg}"
-
-    def _check(r):
+    def _check(r, dist_limit=None):
         if not r: return None, None
         dist = geodesic((city_lat, city_lng), (r.latitude, r.longitude)).km
-        return (r.latitude, r.longitude) if dist <= max_dist_km else (None, None)
+        limit = dist_limit if dist_limit is not None else max_dist_km
+        return (r.latitude, r.longitude) if dist <= limit else (None, None)
 
-    cc_kwargs = {"countrycodes": cc} if cc else {}
-
-    # --- Strategy 1: "Name, City" + country restriction + soft viewbox ---
+    # Strategy 1 — bounded viewbox (most accurate, prevents wrong-country hits)
     try:
-        r = geo.geocode(f"{name}, {city}", exactly_one=True,
-                        viewbox=vb, bounded=False, **cc_kwargs)
-        lat, lng = _check(r)
+        lat, lng = _check(
+            geo.geocode(name, exactly_one=True, viewbox=vb, bounded=True))
         if lat: return lat, lng
     except Exception: pass
 
-    # --- Strategy 2: name alone + country restriction + bounded viewbox ---
+    # Strategy 2 — "Name, City" with soft viewbox hint
     try:
-        r = geo.geocode(name, exactly_one=True,
-                        viewbox=vb, bounded=True, **cc_kwargs)
-        lat, lng = _check(r)
+        lat, lng = _check(
+            geo.geocode(f"{name}, {city}", exactly_one=True,
+                        viewbox=vb, bounded=False))
         if lat: return lat, lng
     except Exception: pass
 
-    # --- Strategy 3: "Name, City" no restrictions (international fallback) ---
+    # Strategy 3 — bare "Name, City"
     try:
-        r = geo.geocode(f"{name}, {city}", exactly_one=True)
-        lat, lng = _check(r)
+        lat, lng = _check(geo.geocode(f"{name}, {city}", exactly_one=True))
         if lat: return lat, lng
+    except Exception: pass
+
+    # Strategy 4 — just the name (allows wider distance but still checked)
+    try:
+        lat, lng = _check(
+            geo.geocode(name, exactly_one=True),
+            dist_limit=max_dist_km * 1.2)
+        if lat: return lat, lng
+    except Exception: pass
+
+    # Strategy 5 — name with any first part (for "Museum X" → "X")
+    try:
+        words = name.split()
+        if len(words) > 1:
+            simple_name = " ".join(words[1:])  # Remove first word
+            lat, lng = _check(
+                geo.geocode(f"{simple_name}, {city}", exactly_one=True),
+                dist_limit=max_dist_km * 1.2)
+            if lat: return lat, lng
     except Exception: pass
 
     return None, None
 
-
 def batch_geocode(pois: list, city: str, city_lat: float, city_lng: float,
-                  max_dist_km: float, country_code: str = "",
-                  max_workers: int = 8) -> list:
-    """
-    Geocode all POIs in parallel.
-    Returns list of (poi_dict, lat, lng) — preserves original order.
-    """
+                  max_dist_km: float = 80, max_workers: int = 8) -> list:
+    """Geocode all POIs in parallel. Returns list of (poi_dict, lat, lng)."""
     results = [None] * len(pois)
+    lock = threading.Lock()
+    request_counter = [0]
 
     def _job(idx, p):
-        lat, lng = geocode_poi(p["name"], city, city_lat, city_lng,
-                               max_dist_km, country_code)
+        # Rate limiting: small delay between requests to avoid overwhelming the service
+        with lock:
+            request_counter[0] += 1
+            if request_counter[0] > 1:
+                time.sleep(0.3)  # 300ms between geocode requests
+        lat, lng = geocode_poi(p["name"], city, city_lat, city_lng, max_dist_km)
         return idx, lat, lng
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -167,67 +178,55 @@ def batch_geocode(pois: list, city: str, city_lat: float, city_lng: float,
             if lat is not None:
                 results[idx] = (pois[idx], lat, lng)
 
-    return [(p, lat, lng) for entry in results
-            if entry is not None
-            for p, lat, lng in [entry]]
-
+    return [entry for entry in results if entry is not None]
 
 # ── AI Prompts ────────────────────────────────────────────────────────────────
-POI_PROMPT = """You are GoWhere — a hyper-local discovery engine.
+POI_PROMPT = """You are GoWhere — a hyper-local discovery engine for {city}.
 
-Target: {city}, {country} (lat {lat:.4f}, lng {lng:.4f})
+{city} may be a small town or village — that is fine, adapt to what is actually there.
+For small places look within 20km. Include nature, local character, anything genuinely present.
 
-Generate exactly 25 Points of Interest within {max_km}km of {city}.
-STRICT: Every single place MUST be within {max_km}km of {city}, {country}.
-Do NOT suggest places in other municipalities or towns unless literally adjacent.
-
-Cover many different categories:
+Generate exactly 30 Points of Interest IN or NEAR {city}. Be DIVERSE and SURPRISING:
 - Cafés, bars, local restaurants (no chains)
-- Parks, nature, viewpoints, lakes, rivers, forests, hiking
-- Museums, galleries, cultural centers, manor houses, ruins, chapels
-- Architecture, sculptures, historic buildings, monuments
-- Markets, farm shops, bakeries, local stores
-- Sports: swimming, cycling routes, sports fields, recreational areas
-- Quirky: mills, bridges, cemeteries, train stations, water towers
-- Community: village squares, cultural houses, libraries, springs
+- Parks, nature, viewpoints, lakes, rivers, forests, hiking spots
+- Museums, galleries, cultural centers (even tiny ones, manor houses, ruins)
+- Architecture, sculptures, chapels, historic buildings
+- Markets, farm shops, bakeries, bookshops, antique stores
+- Sports: climbing, skate parks, swimming, cycling, sports fields
+- Quirky: old mills, water towers, bridges, cemeteries, monuments, stations, railways
+- Community: village squares, cultural houses, libraries
+- Natural: springs, gorges, hills with views, vineyards, orchards
 
-CRITICAL: Use the exact official name as it appears on OpenStreetMap for {country}.
-Real places only — no invented names.
+CRITICAL: Use exact official names as found on OpenStreetMap. Real places only.
 
-Return ONLY valid JSON, no markdown fences:
-{{"pois":[{{"name":"Exact Name","category":"emoji word","why":"One sentence."}}]}}"""
+Return ONLY valid JSON — no markdown:
+{{"pois":[{{"name":"Exact Place Name","category":"emoji word","why":"One punchy sentence."}}]}}"""
 
 VIBE_PROMPT = """You are GoWhere — a spontaneous travel planner.
 
-User is in: {city}, {country} (lat {lat:.4f}, lng {lng:.4f})
-Vibe request: "{vibe}"
-Search radius: {radius_km}km
+User location: {city} (lat: {lat:.4f}, lng: {lng:.4f})
+Their vibe: "{vibe}"
+Search radius: {radius_km}km — ALL suggestions must be within this distance.
 
-Generate exactly 20 destinations matching the vibe, ALL within {radius_km}km of {city}.
-STRICT: Every place must be in {country} and within {radius_km}km. No exceptions.
-Mix distances: some nearby, some toward the edge of the radius.
-Include villages, nature spots, and attractions — not just city-centre places.
+Generate exactly 25 distinct destinations matching the vibe within {radius_km}km.
+Mix distances: some close (walkable), some medium, some near the radius edge.
+For small towns: include nearby villages, nature, regional attractions.
+CRITICAL: Exact official place names as on OpenStreetMap only.
 
-CRITICAL: Exact official place names as on OpenStreetMap for {country} only.
-
-Return ONLY valid JSON, no markdown fences:
-{{"destinations":[{{"name":"Exact Name","vibe_match":"Why it fits.","insider_tip":"One tip."}}]}}"""
-
+Return ONLY valid JSON — no markdown:
+{{"destinations":[{{"name":"Exact Place Name","vibe_match":"Why it fits.","insider_tip":"One insider tip."}}]}}"""
 
 def parse_json(text):
     text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
     return json.loads(text)
 
-def get_pois(model, city, country, lat, lng, max_km):
-    prompt = POI_PROMPT.format(city=city, country=country,
-                               lat=lat, lng=lng, max_km=max_km)
-    return parse_json(model.generate_content(prompt).text)
+def get_pois(model, city):
+    return parse_json(model.generate_content(POI_PROMPT.format(city=city)).text)
 
-def get_vibe_destinations(model, city, country, lat, lng, vibe, radius_km):
-    prompt = VIBE_PROMPT.format(city=city, country=country,
-                                lat=lat, lng=lng, vibe=vibe, radius_km=radius_km)
-    return parse_json(model.generate_content(prompt).text)
-
+def get_vibe_destinations(model, city, lat, lng, vibe, radius_km):
+    return parse_json(model.generate_content(
+        VIBE_PROMPT.format(city=city, lat=lat, lng=lng,
+                           vibe=vibe, radius_km=radius_km)).text)
 
 # ── Map builder ───────────────────────────────────────────────────────────────
 TILE   = "CartoDB dark_matter"
@@ -254,8 +253,8 @@ def build_map(clat, clng, items, zoom=14, user_marker=False,
         ).add_to(m)
 
     for i, item in enumerate(items):
-        color    = item["color"]
-        is_sel   = (selected_idx == i)
+        color  = item["color"]
+        is_sel = (selected_idx == i)
 
         if is_sel:
             folium.CircleMarker(
@@ -293,7 +292,6 @@ def build_map(clat, clng, items, zoom=14, user_marker=False,
 
     return m
 
-
 # ── Card renderers ────────────────────────────────────────────────────────────
 def render_poi_card(i, p, sel):
     is_sel = (sel == i)
@@ -318,10 +316,9 @@ def render_poi_card(i, p, sel):
         </div>""", unsafe_allow_html=True)
     with col_btn:
         lbl = "✅" if is_sel else "📍"
-        if st.button(lbl, key=f"focus_{i}", help=f"Show on map"):
+        if st.button(lbl, key=f"focus_{i}", help="Show on map"):
             st.session_state.selected_idx = None if is_sel else i
             st.rerun()
-
 
 def render_vibe_card(i, dest, sel):
     is_sel = (sel == i)
@@ -351,10 +348,9 @@ def render_vibe_card(i, dest, sel):
         </div>""", unsafe_allow_html=True)
     with col_btn:
         lbl = "✅" if is_sel else "📍"
-        if st.button(lbl, key=f"focus_{i}", help=f"Show on map"):
+        if st.button(lbl, key=f"focus_{i}", help="Show on map"):
             st.session_state.selected_idx = None if is_sel else i
             st.rerun()
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  UI
@@ -386,6 +382,10 @@ if not api_key:
 
 model = get_gemini(api_key)
 
+# ── Search filter state ───────────────────────────────────────────────────
+if "poi_search" not in st.session_state:
+    st.session_state.poi_search = ""
+
 # ── Mode buttons ──────────────────────────────────────────────────────────────
 st.markdown('<div class="gw-section-label">What do you need?</div>', unsafe_allow_html=True)
 c1, c2 = st.columns(2)
@@ -394,11 +394,13 @@ with c1:
         st.session_state.mode = "poi"
         st.session_state.map_data = None
         st.session_state.selected_idx = None
+        st.session_state.poi_search = ""
 with c2:
     if st.button("✨ Match my vibe", use_container_width=True, key="btn_vibe"):
         st.session_state.mode = "vibe"
         st.session_state.map_data = None
         st.session_state.selected_idx = None
+        st.session_state.poi_search = ""
 
 mode = st.session_state.mode
 
@@ -414,23 +416,20 @@ if mode == "poi":
 
     if go and city:
         st.session_state.selected_idx = None
-        prog = st.progress(0, text="Locating your place...")
-        lat, lng, address, cc, country = geocode_city(city)
+        prog = st.progress(0, text="🔍 Locating your place (this may take a moment)...")
+        lat, lng, address = geocode_city(city)
         if not lat:
             prog.empty()
-            st.error("Couldn't find that location. Try adding country: 'Ljutomer, Slovenia'")
+            st.error("❌ Couldn't find that location. Please try:\n- Add your country: 'Ljutomer, Slovenia'\n- Use full city name\n- Check spelling accurate\n\nIf the problem persists, the location service may be temporarily slow.")
         else:
-            poi_radius = 25  # km
             prog.progress(15, text=f"Asking AI about {city}...")
             try:
-                data  = get_pois(model, city, country, lat, lng, max_km=poi_radius)
-                raw   = data.get("pois", [])
+                data = get_pois(model, city)
+                raw  = data.get("pois", [])
                 prog.progress(30, text=f"Locating {len(raw)} places in parallel...")
 
                 verified = batch_geocode(raw, city, lat, lng,
-                                         max_dist_km=poi_radius,
-                                         country_code=cc,
-                                         max_workers=8)
+                                         max_dist_km=5, max_workers=3)
 
                 prog.progress(88, text="Building map...")
                 items = []
@@ -449,12 +448,11 @@ if mode == "poi":
                             f"<span style='font-size:12px;color:#333'>{p['why']}</span></div>"
                         ),
                     })
-                # Show ALL verified results — no cap
 
                 prog.progress(95, text="Rendering map...")
                 if not items:
                     prog.empty()
-                    st.error("No locations found. Try adding the country: 'Ljutomer, Slovenia'")
+                    st.error("No locations found. Try: 'Ljutomer, Slovenia'")
                 else:
                     prog.progress(100); prog.empty()
                     st.session_state.map_data = {
@@ -462,7 +460,8 @@ if mode == "poi":
                         "city": city, "center_lat": lat, "center_lng": lng,
                     }
                     save_to_db("poi", city, json.dumps(
-                        [{"name": x["name"], "lat": x["lat"], "lng": x["lng"]} for x in items]))
+                        [{"name": x["name"], "lat": x["lat"],
+                          "lng": x["lng"]} for x in items]))
             except Exception as e:
                 prog.empty()
                 st.error(f"Something went wrong: {e}")
@@ -496,22 +495,21 @@ elif mode == "vibe":
 
     if go and city and vibe:
         st.session_state.selected_idx = None
-        prog = st.progress(0, text="Locating your place...")
-        lat, lng, address, cc, country = geocode_city(city)
+        prog = st.progress(0, text="🔍 Locating your place (this may take a moment)...")
+        lat, lng, address = geocode_city(city)
         if not lat:
             prog.empty()
-            st.error("Couldn't find that location. Try: 'Ljutomer, Slovenia'")
+            st.error("❌ Couldn't find that location. Please try:\n- Add your country: 'Ljutomer, Slovenia'\n- Use full city name with region\n- Check spelling\n\nIf the problem persists, the location service may be temporarily slow.")
         else:
             prog.progress(15, text="AI is matching your vibe...")
             try:
-                data = get_vibe_destinations(model, city, country, lat, lng, vibe, radius_km)
+                data = get_vibe_destinations(model, city, lat, lng, vibe, radius_km)
                 raw  = data.get("destinations", [])
                 prog.progress(30, text=f"Locating {len(raw)} places in parallel...")
 
                 verified = batch_geocode(raw, city, lat, lng,
-                                         max_dist_km=radius_km,
-                                         country_code=cc,
-                                         max_workers=8)
+                                         max_dist_km=radius_km * 1.3,
+                                         max_workers=3)
 
                 prog.progress(88, text="Building map...")
                 items = []
@@ -538,18 +536,17 @@ elif mode == "vibe":
                             f"<span style='font-size:12px;color:#333'>{d_item['insider_tip']}</span></div>"
                         ),
                     })
-                # Show ALL verified results within radius — no cap
 
                 # Sort by distance, fix labels + colors
                 items.sort(key=lambda x: x["distance_km"])
                 for idx, item in enumerate(items):
                     item["label"] = idx + 1
                     item["color"] = COLORS[idx % len(COLORS)]
-                    # Rebuild popup with final color
                     item["popup_html"] = (
                         f"<div style='font-family:sans-serif;padding:4px'>"
                         f"<b style='font-size:13px;color:#111'>{item['name']}</b><br>"
-                        f"<span style='color:{item['color']};font-size:11px'>~{item['distance_km']} km away</span>"
+                        f"<span style='color:{item['color']};font-size:11px'>"
+                        f"~{item['distance_km']} km away</span>"
                         f"<hr style='margin:5px 0;border-color:#ddd'>"
                         f"<b style='font-size:11px;color:#555'>Why it fits:</b><br>"
                         f"<span style='font-size:12px;color:#333'>{item['vibe_match']}</span><br><br>"
@@ -574,7 +571,8 @@ elif mode == "vibe":
                         "radius_km": radius_km, "map_zoom": zoom,
                     }
                     save_to_db("vibe", f"{city} | {vibe}", json.dumps(
-                        [{"name": x["name"], "lat": x["lat"], "lng": x["lng"]} for x in items]))
+                        [{"name": x["name"], "lat": x["lat"],
+                          "lng": x["lng"]} for x in items]))
             except Exception as e:
                 prog.empty()
                 st.error(f"Something went wrong: {e}")
@@ -610,7 +608,7 @@ if st.session_state.map_data:
         key="main_map",
     )
 
-    # Map click → highlight card
+    # Map click → highlight matching card
     if map_result:
         clicked = map_result.get("last_object_clicked_popup")
         if clicked:
@@ -627,19 +625,44 @@ if st.session_state.map_data:
         count = len(items)
         st.markdown(
             f'<div class="gw-results-label">{count} spots in <b>{d["city"]}</b>'
-            f' &nbsp;·&nbsp; <span style="color:var(--muted);font-weight:400;font-size:0.7rem">'
-            f'click a marker · or tap 📍 to zoom in</span></div>',
+            f' &nbsp;·&nbsp; <span style="color:var(--muted);font-weight:400;'
+            f'font-size:0.7rem">click a marker · or tap 📍 to zoom</span></div>',
             unsafe_allow_html=True)
+        
+        # Search filter for POI
+        st.markdown('<div class="gw-card">', unsafe_allow_html=True)
+        search_query = st.text_input(
+            "🔍 Search these spots",
+            value=st.session_state.poi_search,
+            placeholder="Search by name or category..."
+        )
+        st.session_state.poi_search = search_query
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Filter items based on search
+        filtered_items = []
+        search_lower = search_query.lower()
         for i, p in enumerate(items):
-            render_poi_card(i, p, sel)
+            if (search_lower in p['name'].lower() or 
+                search_lower in p['category'].lower() or 
+                search_lower in p['why'].lower()):
+                filtered_items.append((i, p))
+        
+        if search_query and not filtered_items:
+            st.info("No spots match your search. Try different keywords.")
+        else:
+            for i, p in filtered_items:
+                render_poi_card(i, p, sel)
 
     elif d["type"] == "vibe":
-        count    = len(items)
-        rkm_txt  = f' within <b>{d.get("radius_km","?")} km</b>' if "radius_km" in d else ""
+        count   = len(items)
+        rkm_txt = (f' within <b>{d.get("radius_km","?")} km</b>'
+                   if "radius_km" in d else "")
         st.markdown(
-            f'<div class="gw-results-label">{count} vibe spots near <b>{d["city"]}</b>{rkm_txt}'
-            f' &nbsp;·&nbsp; <span style="color:var(--muted);font-weight:400;font-size:0.7rem">'
-            f'click a marker · or tap 📍 to zoom in</span></div>',
+            f'<div class="gw-results-label">{count} vibe spots near '
+            f'<b>{d["city"]}</b>{rkm_txt}'
+            f' &nbsp;·&nbsp; <span style="color:var(--muted);font-weight:400;'
+            f'font-size:0.7rem">click a marker · or tap 📍 to zoom</span></div>',
             unsafe_allow_html=True)
         for i, dest in enumerate(items):
             render_vibe_card(i, dest, sel)
