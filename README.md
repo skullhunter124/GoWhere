@@ -46,41 +46,7 @@ Open `http://localhost:8501` — enter your Gemini API key in the UI.
 
 ---
 
-## 🌐 Deploy (so you can use it on your phone anywhere)
 
-### Option 1: Streamlit Community Cloud (FREE — Recommended)
-
-1. Push this repo to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your GitHub repo
-4. In **Advanced settings → Secrets**, add:
-   ```toml
-   GEMINI_API_KEY = "your-api-key-here"
-   ```
-5. Deploy → get a URL like `https://gowhere.streamlit.app`
-6. **Bookmark it on your phone** ✅
-
-> Note: SQLite history won't persist on Streamlit Cloud (filesystem resets). History works locally only.
-
-### Option 2: Railway (FREE tier, persistent)
-
-```bash
-npm install -g @railway/cli
-railway login
-railway init
-railway up
-```
-Set `GEMINI_API_KEY` in Railway's environment variables.
-
-### Option 3: ngrok (quick local tunnel — your laptop must be on)
-
-```bash
-pip install pyngrok
-ngrok http 8501
-```
-Share the `https://xxxx.ngrok.io` URL with friends.
-
----
 
 ## API Key
 
@@ -92,6 +58,9 @@ You can provide it two ways:
 - **In secrets.toml** — for deployment (see above)
 
 ---
+## Changing the Gemini model
+You can also change the Gemini AI model around lines 65, more for it says in the
+
 
 ## Extending GoWhere
 
@@ -108,3 +77,6 @@ The codebase is structured for community connectors:
 ---
 
 Made with Streamlit + Gemini + Folium
+
+## License
+This project is licensed under the MIT License - see the LICENSE file for details

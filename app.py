@@ -63,7 +63,7 @@ for k, v in {"map_data": None, "mode": None, "selected_idx": None}.items():
 # ── Gemini ────────────────────────────────────────────────────────────────────
 def get_gemini(api_key):
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-2.5-flash-lite")
+    return genai.GenerativeModel("gemini-2.5-flash-lite")  #Use "gemini-2.5-flash" for more power
 
 # ── Geocoding ─────────────────────────────────────────────────────────────────
 # Dedicated geolocator for the main thread (city lookups)
@@ -138,7 +138,7 @@ def geocode_poi(name: str, city: str, city_lat: float, city_lng: float,
     try:
         lat, lng = _check(
             geo.geocode(name, exactly_one=True),
-            dist_limit=max_dist_km * 1.2)
+            dist_limit=max_dist_km)
         if lat: return lat, lng
     except Exception: pass
 
@@ -149,7 +149,7 @@ def geocode_poi(name: str, city: str, city_lat: float, city_lng: float,
             simple_name = " ".join(words[1:])  # Remove first word
             lat, lng = _check(
                 geo.geocode(f"{simple_name}, {city}", exactly_one=True),
-                dist_limit=max_dist_km * 1.2)
+                dist_limit=max_dist_km)
             if lat: return lat, lng
     except Exception: pass
 
@@ -508,7 +508,7 @@ elif mode == "vibe":
                 prog.progress(30, text=f"Locating {len(raw)} places in parallel...")
 
                 verified = batch_geocode(raw, city, lat, lng,
-                                         max_dist_km=radius_km * 1.3,
+                                         max_dist_km=radius_km * 1.05,
                                          max_workers=3)
 
                 prog.progress(88, text="Building map...")
